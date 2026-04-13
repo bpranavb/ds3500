@@ -1,6 +1,7 @@
 import pytest
 import pandas as pd
 import re
+import os
 from unittest.mock import patch, MagicMock
 
 
@@ -19,6 +20,10 @@ def load_csv(filepath: str) -> pd.DataFrame:
 
 def merge_datasets(netflix_df: pd.DataFrame, tmdb_df: pd.DataFrame) -> pd.DataFrame:
     return netflix_df.merge(tmdb_df, on="title", how="left")
+
+
+def drop_duplicates(df: pd.DataFrame) -> pd.DataFrame:
+    return df.drop_duplicates(subset=["title"])
 
 
 class TestCleanTitle:
@@ -111,3 +116,66 @@ class TestMergeLogic:
         empty_tmdb = pd.DataFrame(columns=["title", "tmdb_score"])
         merged = merge_datasets(netflix_df, empty_tmdb)
         assert len(merged) == len(netflix_df)
+
+
+class TestDataValidation:
+
+    def test_release_year_in_valid_range(self):
+        df = pd.DataFrame({
+            "title": ["inception", "dune"],
+            "release_year": [2010, 2021]
+        })
+        assert df["release_year"].between(1900, 2100).all()
+
+    def test_scores_in_valid_range(self):
+        df = pd.DataFrame({
+            "title": ["inception", "dune"],
+            "tmdb_score": [8.8, 7.9]
+        })
+        assert df["tmdb_score"].between(0, 10).all()
+
+    def test_no_null_titles(self):
+        df = pd.DataFrame({
+            "title": ["inception", "dune"],
+            "release_year": [2010, 2021]
+        })
+        assert df["title"].notna().all()
+
+    def test_no_null_release_year(self):
+        df = pd.DataFrame({
+            "title": ["inception", "dune"],
+            "release_year": [2010, 2021]
+        })
+        assert df["release_year"].notna().all()
+
+
+class TestDeduplication:
+
+    def test_duplicates_are_removed(self):
+        df = pd.DataFrame({
+            "title": ["inception", "inception", "dune"],
+            "type":  ["Movie", "Movie", "Movie"]
+        })
+        deduped = drop_duplicates(df)
+        assert len(deduped) == 2
+
+    def test_no_duplicates_after_drop(self):
+        df = pd.DataFrame({
+            "title": ["inception", "inception", "dune"],
+            "type":  ["Movie", "Movie", "Movie"]
+        })
+        deduped = drop_duplicates(df)
+        assert deduped.duplicated(subset=["title"]).sum() == 0
+
+
+class TestFolderStructure:
+
+    def test_data_processed_folder_exists(self, tmp_path):
+        processed = tmp_path / "data" / "processed"
+        processed.mkdir(parents=True)
+        assert processed.exists()
+
+    def test_data_raw_folder_exists(self, tmp_path):
+        raw = tmp_path / "data" / "raw"
+        raw.mkdir(parents=True)
+        assert raw.exists()

@@ -12,6 +12,7 @@ Run Tests: Execute the test suite to verify data integrity:
 
 Bash
 pytest test_pipeline.py
+
 Data Cleaning & Decisions
 To create a high-quality unified dataset, we made the following engineering choices:
 

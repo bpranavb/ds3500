@@ -1,15 +1,6 @@
-"""
-Fetch TMDB metadata for Netflix titles.
-
-This script:
-- loads Netflix titles from data/raw/netflix_titles.csv
-- queries the TMDB API for Movies and TV Shows
-- handles pagination and rate limiting
-- saves results to data/raw/tmdb_raw.csv
-"""
+"""Fetch TMDB metadata for Netflix titles."""
 
 from pathlib import Path
-import os
 import time
 import requests
 import pandas as pd
@@ -18,35 +9,51 @@ from requests.exceptions import RequestException
 SEARCH_MOVIE_URL = "https://api.themoviedb.org/3/search/movie"
 SEARCH_TV_URL = "https://api.themoviedb.org/3/search/tv"
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parents[2]
 RAW_DIR = BASE_DIR / "data" / "raw"
+
 NETFLIX_PATH = RAW_DIR / "netflix_titles.csv"
 OUTPUT_PATH = RAW_DIR / "tmdb_raw.csv"
 
 REQUEST_DELAY = 0.10
 TIMEOUT = 8
-TEST_LIMIT = 40
+TEST_LIMIT = None
 MAX_PAGES = 2
+
+API_KEY = "PASTE_YOUR_REAL_TMDB_KEY_HERE"
 
 
 def load_netflix_titles(csv_path: Path) -> pd.DataFrame:
     """Load Netflix dataset and keep only title/type columns."""
+    print(f"Looking for Netflix file at: {csv_path}")
+
     if not csv_path.exists():
         raise FileNotFoundError(
             f"Could not find Netflix file at: {csv_path}\n"
-            "Place netflix_titles.csv inside data/raw/."
+            "Put netflix_titles.csv inside data/raw/."
         )
 
     df = pd.read_csv(csv_path)
-    required_columns = {"title", "type"}
+    print(f"Raw Netflix shape: {df.shape}")
 
+    required_columns = {"title", "type"}
     if not required_columns.issubset(df.columns):
         raise ValueError(
             "netflix_titles.csv must contain 'title' and 'type' columns."
         )
 
     df = df[["title", "type"]].dropna(subset=["title", "type"]).drop_duplicates()
-    return df.head(TEST_LIMIT)
+    print(f"Cleaned Netflix shape: {df.shape}")
+
+    if TEST_LIMIT is not None:
+        df = df.head(TEST_LIMIT)
+        print(f"Using TEST_LIMIT={TEST_LIMIT}, shape now: {df.shape}")
+
+    if df.empty:
+        raise ValueError("Netflix dataframe is empty after cleaning.")
+
+    print(df.head())
+    return df
 
 
 def search_tmdb(
@@ -55,11 +62,10 @@ def search_tmdb(
     session: requests.Session,
     api_key: str,
 ) -> dict | None:
-    """
-    Search TMDB for one title, handle pagination, and keep only the top result.
-    """
+    """Search TMDB for one title and return the top result."""
     normalized_type = content_type.strip().lower()
     url = SEARCH_MOVIE_URL if normalized_type == "movie" else SEARCH_TV_URL
+
     all_results = []
 
     for page in range(1, MAX_PAGES + 1):
@@ -126,21 +132,23 @@ def fetch_tmdb_data(netflix_df: pd.DataFrame, api_key: str) -> pd.DataFrame:
             if result is not None:
                 all_rows.append(result)
 
-    return pd.DataFrame(all_rows)
+    tmdb_df = pd.DataFrame(all_rows)
+    print(f"TMDB output shape: {tmdb_df.shape}")
+    return tmdb_df
 
 
 def main() -> None:
     """Run TMDB acquisition pipeline."""
-    api_key = os.getenv("TMDB_API_KEY")
-    if not api_key:
-        raise ValueError(
-            "Set your TMDB_API_KEY environment variable before running this script."
-        )
+    if API_KEY == "PASTE_YOUR_REAL_TMDB_KEY_HERE" or not API_KEY.strip():
+        raise ValueError('Paste your real TMDB key into API_KEY = "..." first.')
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
 
     netflix_df = load_netflix_titles(NETFLIX_PATH)
-    tmdb_df = fetch_tmdb_data(netflix_df, api_key)
+    tmdb_df = fetch_tmdb_data(netflix_df, API_KEY)
+
+    if tmdb_df.empty:
+        raise ValueError("TMDB output dataframe is empty.")
 
     try:
         tmdb_df.to_csv(OUTPUT_PATH, index=False)

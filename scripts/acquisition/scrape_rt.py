@@ -1,13 +1,4 @@
-"""
-Scrape Rotten Tomatoes search results for Netflix titles.
-
-This script:
-- loads Netflix titles from data/raw/netflix_titles.csv
-- sends Rotten Tomatoes search requests with headers
-- uses rate limiting
-- preserves the expected schema even when no matches are found
-- saves results to data/raw/rotten_tomatoes_raw.csv
-"""
+"""Scrape Rotten Tomatoes search results for Netflix titles."""
 
 from pathlib import Path
 import time
@@ -16,14 +7,16 @@ import pandas as pd
 from bs4 import BeautifulSoup
 from requests.exceptions import RequestException
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parents[2]
 RAW_DIR = BASE_DIR / "data" / "raw"
+
 NETFLIX_PATH = RAW_DIR / "netflix_titles.csv"
 OUTPUT_PATH = RAW_DIR / "rotten_tomatoes_raw.csv"
 
 SEARCH_URL = "https://www.rottentomatoes.com/search"
+
 REQUEST_DELAY = 0.25
-TIMEOUT = 6
+TIMEOUT = 8
 TEST_LIMIT = 20
 
 HEADERS = {
@@ -45,28 +38,39 @@ RT_COLUMNS = [
 
 def load_netflix_titles(csv_path: Path) -> pd.DataFrame:
     """Load Netflix dataset and keep only title/type columns."""
+    print(f"Looking for Netflix file at: {csv_path}")
+
     if not csv_path.exists():
         raise FileNotFoundError(
             f"Could not find Netflix file at: {csv_path}\n"
-            "Place netflix_titles.csv inside data/raw/."
+            "Put netflix_titles.csv inside data/raw/."
         )
 
     df = pd.read_csv(csv_path)
-    required_columns = {"title", "type"}
+    print(f"Raw Netflix shape: {df.shape}")
 
+    required_columns = {"title", "type"}
     if not required_columns.issubset(df.columns):
         raise ValueError(
             "netflix_titles.csv must contain 'title' and 'type' columns."
         )
 
-    df = df[["title", "type"]].dropna(subset=["title"]).drop_duplicates()
-    return df.head(TEST_LIMIT)
+    df = df[["title", "type"]].dropna(subset=["title", "type"]).drop_duplicates()
+    print(f"Cleaned Netflix shape: {df.shape}")
+
+    if TEST_LIMIT is not None:
+        df = df.head(TEST_LIMIT)
+        print(f"Using TEST_LIMIT={TEST_LIMIT}, shape now: {df.shape}")
+
+    if df.empty:
+        raise ValueError("Netflix dataframe is empty after cleaning.")
+
+    print(df.head())
+    return df
 
 
 def parse_search_results(html: str, source_title: str) -> dict:
-    """
-    Parse Rotten Tomatoes search page.
-    """
+    """Parse Rotten Tomatoes search page and return the first structured result."""
     soup = BeautifulSoup(html, "html.parser")
     search_rows = soup.find_all(["search-page-media-row", "search-page-result"])
 
@@ -129,10 +133,13 @@ def fetch_rt_data(netflix_df: pd.DataFrame) -> pd.DataFrame:
         for _, row in netflix_df.iterrows():
             title = str(row["title"]).strip()
             print(f"Scraping Rotten Tomatoes: {title}")
+
             result = scrape_rotten_tomatoes(title, session)
             all_rows.append(result)
 
-    return pd.DataFrame(all_rows, columns=RT_COLUMNS)
+    rt_df = pd.DataFrame(all_rows, columns=RT_COLUMNS)
+    print(f"Rotten Tomatoes output shape: {rt_df.shape}")
+    return rt_df
 
 
 def main() -> None:
@@ -141,6 +148,9 @@ def main() -> None:
 
     netflix_df = load_netflix_titles(NETFLIX_PATH)
     rt_df = fetch_rt_data(netflix_df)
+
+    if rt_df.empty:
+        raise ValueError("Output dataframe is empty.")
 
     try:
         rt_df.to_csv(OUTPUT_PATH, index=False)
